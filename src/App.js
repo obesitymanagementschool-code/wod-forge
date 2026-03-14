@@ -732,7 +732,7 @@ function GeneratorWizard({ onGenerate }) {
 }
 
 // ─── CALENDAR ────────────────────────────────────────────────
-function CalendarView({ calendarWods, onStartWod, onAddWodToDay }) {
+function CalendarView({ calendarWods, onStartWod, onAddWodToDay, onDeleteWod }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selDay, setSelDay] = useState(fmtDate(new Date()));
   const days = getWeekDays(weekOffset);
@@ -792,9 +792,12 @@ function CalendarView({ calendarWods, onStartWod, onAddWodToDay }) {
                     <div style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>{wod?.templateLabel}</div>
                     <div style={{ color: "#444", fontSize: 10, marginTop: 1 }}>{wod?.totalTime} min · {wod?.level?.toUpperCase()}</div>
                   </div>
-                  <button onClick={() => onStartWod(wod)} style={{ padding: "8px 14px", background: `linear-gradient(90deg,${C.flamingo},#FF2D7A)`, border: "none", borderRadius: 7, fontFamily: "'Bebas Neue',cursive", fontSize: 12, color: "#fff", cursor: "pointer", letterSpacing: 1, whiteSpace: "nowrap" }}>
-                    EMPEZAR
-                  </button>
+                            <div style={{ display: "flex", gap: 5 }}>
+                    <button onClick={() => onStartWod(wod)} style={{ padding: "8px 12px", background: `linear-gradient(90deg,${C.flamingo},#FF2D7A)`, border: "none", borderRadius: 7, fontFamily: "'Bebas Neue',cursive", fontSize: 12, color: "#fff", cursor: "pointer", letterSpacing: 1, whiteSpace: "nowrap" }}>
+                      EMPEZAR
+                    </button>
+                    <button onClick={() => onDeleteWod(entry.id)} style={{ padding: "8px 10px", background: "#13131f", border: `1px solid ${C.border}`, borderRadius: 7, color: "#666", fontSize: 13, cursor: "pointer" }}>🗑</button>
+                  </div>
                 </div>
                 {wod?.blocks?.map((b, j) => <BlockCard key={j} block={b} color={color} />)}
               </div>
@@ -1227,7 +1230,7 @@ export default function App() {
           )
         )}
 
-        {tab === "calendar" && <CalendarView calendarWods={calendarWods} onStartWod={w => setActiveTimer(w)} onAddWodToDay={date => { if (wod) { setShowSchedule(true); } else { setTab("generate"); } }} />}
+        {tab === "calendar" && <CalendarView calendarWods={calendarWods} onStartWod={w => setActiveTimer(w)} onAddWodToDay={date => { if (wod) { setShowSchedule(true); } else { setTab("generate"); } }} onDeleteWod={async id => { await sb.delete(session.token, "wod_calendar", id); await loadAll(session.token); }} />}
         {tab === "manual" && <ManualWODView onSchedule={scheduleWod} onDo={w => { setWod(w); setTab("wod"); }} calendarWods={calendarWods} />}
         {tab === "favorites" && <FavoritesView favorites={favorites} loading={loadingF} onLoad={w => { setWod(w); setTab("wod"); }} onDelete={async id => { await sb.delete(session.token, "wod_favorites", id); await loadAll(session.token); }} />}
         {tab === "benchmarks" && <BenchmarksView benchmarks={benchmarks} benchmarkResults={benchmarkResults} loading={loadingB} onAddResult={addBenchmarkResult} onDelete={async id => { await sb.delete(session.token, "wod_benchmarks", id); await loadAll(session.token); }} />}
