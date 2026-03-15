@@ -965,7 +965,7 @@ function Sidebar({open, onClose, tab, setTab, onLogout, userName}) {
     <>
       {open&&<div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200}}/>}
       <div style={{position:"fixed",top:0,left:0,bottom:0,width:260,background:"#0a0a14",borderRight:`1px solid ${C.border}`,zIndex:300,transform:open?"translateX(0)":"translateX(-100%)",transition:"transform 0.3s ease",display:"flex",flexDirection:"column"}}>
-        <div style={{padding:"52px 16px 16px",borderBottom:`1px solid ${C.border}`}}>
+        <div style={{padding:`max(52px, calc(env(safe-area-inset-top, 44px) + 12px)) 16px 16px`,borderBottom:`1px solid ${C.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
             <div style={{fontSize:28}}>🦩</div>
             <div><div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,letterSpacing:3,color:C.flamingo}}>FLAMINGO WOD</div><div style={{color:C.muted,fontSize:10}}>{userName}</div></div>
@@ -1062,7 +1062,7 @@ export default function App() {
 
       <Sidebar open={sidebarOpen} onClose={()=>setSidebarOpen(false)} tab={tab} setTab={setTab} onLogout={handleLogout} userName={session.user.email?.split("@")[0]?.toUpperCase()}/>
 
-      <div style={{background:"#000",borderBottom:`1px solid ${C.border}`,paddingTop:44,paddingBottom:10,paddingLeft:16,paddingRight:16,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
+      <div style={{background:"#000",borderBottom:`1px solid ${C.border}`,paddingTop:"max(44px, env(safe-area-inset-top, 44px))",paddingBottom:10,paddingLeft:16,paddingRight:16,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
         <button onClick={()=>setSidebarOpen(true)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4,padding:4}}>
           <div style={{width:22,height:2,background:"#fff",borderRadius:2}}/>
           <div style={{width:22,height:2,background:"#fff",borderRadius:2}}/>
@@ -1128,7 +1128,7 @@ export default function App() {
         {tab==="history"&&<HistoryView history={history} loading={loadingH}/>}
       </div>
 
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#000",borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#000",borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom, 0px)"}}>
         {bottomTabs.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"10px 0 14px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,borderTop:`2px solid ${tab===t.id?C.flamingo:"transparent"}`}}>
             <span style={{fontSize:18}}>{t.icon}</span>
