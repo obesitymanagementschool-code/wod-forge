@@ -492,7 +492,48 @@ function ScheduleModal({wod, onSchedule, onClose, calendarWods}) {
   );
 }
 
-// ── CUSTOM WOD BUILDER ────────────────────────────────────────
+// ── EXERCISE DATABASE HOOK ────────────────────────────────────
+function useExerciseDB(session) {
+  const [dbExercises, setDbExercises] = useState([]);
+  const [customExercises, setCustomExercises] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const r = await fetch(EXERCISES_URL);
+        const data = await r.json();
+        setDbExercises(data.map(mapToAppExercise));
+      } catch(e) { console.error("Error loading exercises:", e); }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (!session?.token) return;
+    async function loadCustom() {
+      try {
+        const r = await sb.select(session.token, "custom_exercises", "select=*");
+        if (Array.isArray(r)) setCustomExercises(r.map(e => e.exercise));
+      } catch(e) {}
+    }
+    loadCustom();
+  }, [session]);
+
+  async function saveCustomExercise(ex) {
+    if (!session?.token) return;
+    try {
+      await sb.insert(session.token, "custom_exercises", { user_id: session.user.id, exercise: ex });
+      setCustomExercises(p => [...p, ex]);
+    } catch(e) {}
+  }
+
+  const allExercises = [...dbExercises, ...customExercises];
+  return { allExercises, dbExercises, customExercises, saveCustomExercise, loading };
+}
+
+
 const BLOCK_TYPES = [
   {id:"AMRAP",   label:"AMRAP",    icon:"🔄"},
   {id:"ForTime", label:"For Time", icon:"⏱"},
@@ -503,30 +544,109 @@ const BLOCK_TYPES = [
   {id:"CashOut", label:"Cash Out", icon:"⬆"},
 ];
 
-function ExercisePicker({equipment, onSelect, onClose}) {
+function ExercisePicker({allExercises, onSelect, onClose, onSaveCustom}) {
   const [search, setSearch] = useState("");
-  const equipOk = e => e.req.length===0 || e.req.every(r=>equipment[r]);
-  const avail = EXERCISES.filter(equipOk).filter(e=>e.name.toLowerCase().includes(search.toLowerCase()));
+  const [filterMuscle, setFilterMuscle] = useState("all");
+  const [filterLevel, setFilterLevel] = useState("all");
+  const [showAddCustom, setShowAddCustom] = useState(false);
+  const [customName, setCustomName] = useState("");
+  const [customEq, setCustomEq] = useState("body only");
+
+  const muscles = ["all", "chest", "back", "shoulders", "biceps", "triceps", "abdominals", "quadriceps", "hamstrings", "glutes", "calves"];
+  const levels = ["all", "beginner", "intermediate", "expert"];
+
+  const filtered = allExercises.filter(e => {
+    const matchSearch = e.name.toLowerCase().includes(search.toLowerCase());
+    const matchMuscle = filterMuscle === "all" || (e.primaryMuscles||[]).includes(filterMuscle);
+    const matchLevel = filterLevel === "all" || e.skill === (filterLevel === "beginner" ? "low" : filterLevel === "intermediate" ? "mid" : "high");
+    return matchSearch && matchMuscle && matchLevel;
+  }).slice(0, 50);
+
+  function handleAddCustom() {
+    if (!customName.trim()) return;
+    const ex = {
+      id: `custom_${Date.now()}`,
+      name: customName.trim(),
+      req: [],
+      cat: "gym",
+      unit: "reps",
+      skill: "low",
+      cycleTime: 4,
+      minInterval: 20,
+      primaryMuscles: [],
+      equipment: customEq,
+      isCustom: true,
+    };
+    if (onSaveCustom) onSaveCustom(ex);
+    onSelect(ex);
+    onClose();
+  }
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:4000}}>
-      <div style={{background:"#0a0a16",border:`1px solid ${C.flamingo}30`,borderRadius:"16px 16px 0 0",padding:"16px 14px 30px",width:"100%",maxWidth:500,maxHeight:"75vh",display:"flex",flexDirection:"column"}}>
+      <div style={{background:"#0a0a16",border:`1px solid ${C.flamingo}30`,borderRadius:"16px 16px 0 0",padding:"16px 14px 30px",width:"100%",maxWidth:500,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
         <div style={{width:32,height:3,background:C.border,borderRadius:2,margin:"0 auto 14px"}}/>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar ejercicio..." style={{width:"100%",padding:"9px 12px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:"#fff",fontSize:13,marginBottom:10,boxSizing:"border-box"}}/>
-        <div style={{flex:1,overflowY:"auto"}}>
-          {avail.map(ex=>(
-            <button key={ex.id} onClick={()=>{onSelect(ex);onClose();}} style={{width:"100%",padding:"10px 12px",marginBottom:4,background:C.card,border:`1px solid ${C.border}`,borderRadius:7,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",textAlign:"left"}}>
-              <span style={{color:"#ccc",fontSize:13}}>{ex.name}</span>
-              <span style={{color:"#444",fontSize:10}}>{ex.skill.toUpperCase()}</span>
-            </button>
-          ))}
-        </div>
-        <button onClick={onClose} style={{marginTop:10,width:"100%",padding:"10px",background:"#13131f",border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+
+        {!showAddCustom ? <>
+          {/* Search */}
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar ejercicio..." style={{width:"100%",padding:"9px 12px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:"#fff",fontSize:13,marginBottom:8,boxSizing:"border-box"}}/>
+
+          {/* Filters */}
+          <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
+            {levels.map(l=>(
+              <button key={l} onClick={()=>setFilterLevel(l)} style={{padding:"4px 10px",whiteSpace:"nowrap",background:filterLevel===l?C.flamingo+"25":C.card,border:`1px solid ${filterLevel===l?C.flamingo:C.border}`,borderRadius:6,color:filterLevel===l?C.flamingo:"#666",fontSize:10,cursor:"pointer",fontWeight:700}}>
+                {l==="all"?"Todos los niveles":l}
+              </button>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
+            {muscles.map(m=>(
+              <button key={m} onClick={()=>setFilterMuscle(m)} style={{padding:"4px 10px",whiteSpace:"nowrap",background:filterMuscle===m?C.flamingo+"25":C.card,border:`1px solid ${filterMuscle===m?C.flamingo:C.border}`,borderRadius:6,color:filterMuscle===m?C.flamingo:"#666",fontSize:10,cursor:"pointer",fontWeight:700}}>
+                {m==="all"?"Todos":m}
+              </button>
+            ))}
+          </div>
+
+          {/* List */}
+          <div style={{flex:1,overflowY:"auto"}}>
+            {filtered.length===0 && <div style={{textAlign:"center",padding:"20px",color:C.muted,fontSize:12}}>No hay ejercicios. Crea uno personalizado.</div>}
+            {filtered.map(ex=>(
+              <button key={ex.id} onClick={()=>{onSelect(ex);onClose();}} style={{width:"100%",padding:"10px 12px",marginBottom:4,background:C.card,border:`1px solid ${ex.isCustom?C.flamingo:C.border}`,borderRadius:7,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",textAlign:"left"}}>
+                <div>
+                  <span style={{color:ex.isCustom?C.flamingo:"#ccc",fontSize:13}}>{ex.name}</span>
+                  {ex.primaryMuscles?.length>0 && <div style={{color:"#444",fontSize:9,marginTop:2}}>{ex.primaryMuscles.slice(0,2).join(", ")}</div>}
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  {ex.isCustom && <span style={{color:C.flamingo,fontSize:9,fontWeight:800}}>CUSTOM</span>}
+                  <span style={{color:"#444",fontSize:10}}>{ex.skill==="low"?"BEG":ex.skill==="mid"?"INT":"EXP"}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Add custom button */}
+          <button onClick={()=>setShowAddCustom(true)} style={{marginTop:10,width:"100%",padding:"10px",background:C.flamingo+"15",border:`1px dashed ${C.flamingo}`,borderRadius:8,color:C.flamingo,fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Crear ejercicio personalizado</button>
+          <button onClick={onClose} style={{marginTop:6,width:"100%",padding:"10px",background:"#13131f",border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+        </> : <>
+          {/* Add custom exercise form */}
+          <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#fff",letterSpacing:2,marginBottom:14}}>NUEVO EJERCICIO</div>
+          <label style={{color:C.muted,fontSize:9,letterSpacing:2,display:"block",marginBottom:4}}>NOMBRE</label>
+          <input value={customName} onChange={e=>setCustomName(e.target.value)} placeholder="Ej: Dragon Flag, L-Sit..." style={{width:"100%",padding:"9px 12px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:"#fff",fontSize:13,marginBottom:12,boxSizing:"border-box"}}/>
+          <label style={{color:C.muted,fontSize:9,letterSpacing:2,display:"block",marginBottom:4}}>EQUIPAMIENTO</label>
+          <select value={customEq} onChange={e=>setCustomEq(e.target.value)} style={{width:"100%",padding:"9px 12px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:"#fff",fontSize:13,marginBottom:16,boxSizing:"border-box",appearance:"none"}}>
+            {["body only","barbell","dumbbell","kettlebells","pullup_bar","rings","box","bands","machine","other"].map(e=><option key={e} value={e}>{e}</option>)}
+          </select>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setShowAddCustom(false)} style={{flex:1,padding:"11px 0",background:"#13131f",border:`1px solid ${C.border}`,borderRadius:8,color:C.muted,fontSize:12,cursor:"pointer"}}>Volver</button>
+            <button onClick={handleAddCustom} style={{flex:2,padding:"11px 0",background:`linear-gradient(90deg,${C.flamingo},#FF2D7A)`,border:"none",borderRadius:8,fontFamily:"'Bebas Neue',cursive",fontSize:15,color:"#fff",cursor:"pointer",letterSpacing:1}}>GUARDAR Y USAR</button>
+          </div>
+        </>}
       </div>
     </div>
   );
 }
 
-function CustomBlock({block, equipment, onChange, onDelete}) {
+function CustomBlock({block, allExercises, onSaveCustom, onChange, onDelete}) {
   const [showPicker, setShowPicker] = useState(false);
   const [pickerTarget, setPickerTarget] = useState(null);
   const inp = {padding:"7px 10px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:"#fff",fontSize:12,boxSizing:"border-box"};
@@ -579,12 +699,12 @@ function CustomBlock({block, equipment, onChange, onDelete}) {
           <button onClick={addMov} style={{width:"100%",padding:"7px",background:"#13131f",border:`1px solid ${C.border}`,borderRadius:6,color:"#666",fontSize:11,cursor:"pointer",marginTop:4}}>+ Anadir ejercicio</button>
         </div>
       )}
-      {showPicker&&<ExercisePicker equipment={equipment} onSelect={ex=>{if(pickerTarget!==null)updateMov(pickerTarget,"ex",ex);}} onClose={()=>setShowPicker(false)}/>}
+      {showPicker&&<ExercisePicker allExercises={allExercises} onSelect={ex=>{if(pickerTarget!==null)updateMov(pickerTarget,"ex",ex);}} onClose={()=>setShowPicker(false)} onSaveCustom={onSaveCustom}/>}
     </div>
   );
 }
 
-function CustomWODBuilder({equipment, onDone, onCancel}) {
+function CustomWODBuilder({allExercises, onSaveCustom, onDone, onCancel}) {
   const [blocks, setBlocks] = useState([]);
   const [name, setName] = useState("");
   const [showMenu, setShowMenu] = useState(false);
@@ -610,7 +730,7 @@ function CustomWODBuilder({equipment, onDone, onCancel}) {
       </div>
       <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nombre del WOD (opcional)" style={{width:"100%",padding:"10px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,color:"#fff",fontSize:13,boxSizing:"border-box",marginBottom:16}}/>
       {blocks.length===0&&<Placeholder icon="🧱" text="Anade bloques para construir tu WOD"/>}
-      {blocks.map((b,i)=><CustomBlock key={i} block={b} equipment={equipment} onChange={v=>updateBlock(i,v)} onDelete={()=>deleteBlock(i)}/>)}
+      {blocks.map((b,i)=><CustomBlock key={i} block={b} allExercises={allExercises} onSaveCustom={onSaveCustom} onChange={v=>updateBlock(i,v)} onDelete={()=>deleteBlock(i)}/>)}
       <div style={{position:"relative",marginBottom:16}}>
         <button onClick={()=>setShowMenu(s=>!s)} style={{width:"100%",padding:"12px",background:C.card,border:`2px dashed ${C.border}`,borderRadius:10,color:C.flamingo,fontFamily:"'Bebas Neue',cursive",fontSize:15,cursor:"pointer",letterSpacing:2}}>+ ANADIR BLOQUE</button>
         {showMenu&&(
@@ -667,13 +787,13 @@ function AuthScreen({onAuth}) {
 }
 
 // ── GENERATOR ─────────────────────────────────────────────────
-function GeneratorWizard({onGenerate, onCustom}) {
+function GeneratorWizard({allExercises, onGenerate, onCustom, onSaveCustom}) {
   const [format,setFormat]=useState("Aleatorio"),[duration,setDuration]=useState(20),[level,setLevel]=useState("rx");
   const [equipment,setEquipment]=useState(()=>Object.fromEntries(EQUIPMENT_LIST.map(e=>[e.id,true])));
   const [maxEx,setMaxEx]=useState(4),[showCustom,setShowCustom]=useState(false);
   const groups=[...new Set(EQUIPMENT_LIST.map(e=>e.group))];
 
-  if (showCustom) return <CustomWODBuilder equipment={equipment} onDone={wod=>{setShowCustom(false);onCustom(wod);}} onCancel={()=>setShowCustom(false)}/>;
+  if (showCustom) return <CustomWODBuilder allExercises={allExercises} onSaveCustom={onSaveCustom} onDone={wod=>{setShowCustom(false);onCustom(wod);}} onCancel={()=>setShowCustom(false)}/>;
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:22}}>
@@ -774,8 +894,72 @@ function CalendarView({calendarWods, onStartWod, onAddWodToDay, onDeleteWod}) {
   );
 }
 
+// ── SESSION DETAIL MODAL ─────────────────────────────────────
+function SessionModal({entry, onClose}) {
+  const wod = entry.wod;
+  const color = C.flamingo;
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:2000}}>
+      <div style={{background:"#0a0a16",border:`1px solid ${color}30`,borderRadius:"16px 16px 0 0",padding:"18px 16px 36px",width:"100%",maxWidth:500,maxHeight:"85vh",overflowY:"auto"}}>
+        <div style={{width:32,height:3,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
+
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+          <div>
+            <Tag color={color}>{wod?.type||"WOD"}</Tag>
+            <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:22,color:"#fff",letterSpacing:2,marginTop:6}}>{wod?.templateLabel||"WOD"}</div>
+            <div style={{color:C.muted,fontSize:11,marginTop:2}}>{new Date(entry.date).toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+          </div>
+          <button onClick={onClose} style={{padding:"6px 10px",background:"#13131f",border:`1px solid ${C.border}`,borderRadius:7,color:C.muted,fontSize:14,cursor:"pointer"}}>✕</button>
+        </div>
+
+        {/* Resultado */}
+        {entry.result && (
+          <div style={{background:color+"15",border:`1px solid ${color}30`,borderRadius:10,padding:"12px 14px",marginBottom:12}}>
+            <div style={{color:color,fontSize:9,fontWeight:800,letterSpacing:2,marginBottom:4}}>RESULTADO</div>
+            <div style={{color:"#fff",fontFamily:"'Bebas Neue',cursive",fontSize:20,letterSpacing:1}}>{entry.result}</div>
+          </div>
+        )}
+
+        {/* Carga sesión */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+          {[
+            {l:"RPE",       v:entry.rpe?`${entry.rpe}/10`:"—"},
+            {l:"Duración",  v:entry.duracion_min?`${entry.duracion_min} min`:"—"},
+            {l:"Carga",     v:entry.carga_sesion||"—"},
+          ].map(s=>(
+            <div key={s.l} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 8px",textAlign:"center"}}>
+              <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:22,color:color,lineHeight:1}}>{s.v}</div>
+              <div style={{color:C.muted,fontSize:8,letterSpacing:1,marginTop:2}}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Notas */}
+        {entry.notes && (
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 14px",marginBottom:14}}>
+            <div style={{color:C.muted,fontSize:9,fontWeight:800,letterSpacing:2,marginBottom:4}}>NOTAS</div>
+            <div style={{color:"#ccc",fontSize:12,fontStyle:"italic"}}>"{entry.notes}"</div>
+          </div>
+        )}
+
+        {/* WOD detail */}
+        {wod?.blocks?.length>0 && (
+          <div>
+            <div style={{color:C.muted,fontSize:9,fontWeight:800,letterSpacing:2,marginBottom:10}}>WOD</div>
+            {wod.blocks.map((b,i)=><BlockCard key={i} block={b} color={color}/>)}
+          </div>
+        )}
+
+        <button onClick={onClose} style={{width:"100%",padding:"12px 0",background:`linear-gradient(90deg,${C.flamingo},#FF2D7A)`,border:"none",borderRadius:10,fontFamily:"'Bebas Neue',cursive",fontSize:16,color:"#fff",letterSpacing:2,cursor:"pointer",marginTop:8}}>CERRAR</button>
+      </div>
+    </div>
+  );
+}
+
 // ── STATS ─────────────────────────────────────────────────────
 function StatsView({history, loading}) {
+  const [selectedEntry, setSelectedEntry] = useState(null);
   if (loading) return <Spinner/>;
   if (!history.length) return <Placeholder icon="📊" text="Registra tu primer WOD para ver estadisticas"/>;
   const {acuteLoad,chronicLoad,acwr,weeks,daysThisWeek,totalMins,avgRpe} = calcLoadStats(history);
@@ -834,11 +1018,21 @@ function StatsView({history, loading}) {
       </div>
       <div style={{color:C.muted,fontSize:9,letterSpacing:2,marginBottom:10}}>ULTIMAS SESIONES</div>
       {[...history].slice(0,8).map((h,i)=>(
-        <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{color:"#fff",fontWeight:600,fontSize:11}}>{h.wod?.templateLabel||h.wod?.type||"WOD"}</div><div style={{color:"#444",fontSize:9,marginTop:1}}>{new Date(h.date).toLocaleDateString("es-ES")}</div></div>
-          <div style={{textAlign:"right"}}>{h.carga_sesion>0&&<div style={{color:C.flamingo,fontFamily:"'Bebas Neue',cursive",fontSize:16}}>{h.carga_sesion}</div>}{h.rpe&&<div style={{color:C.muted,fontSize:9}}>RPE {h.rpe} · {h.duracion_min}min</div>}</div>
-        </div>
+        <button key={i} onClick={()=>setSelectedEntry(h)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",textAlign:"left"}}>
+          <div>
+            <div style={{color:"#fff",fontWeight:600,fontSize:11}}>{h.wod?.templateLabel||h.wod?.type||"WOD"}</div>
+            <div style={{color:"#444",fontSize:9,marginTop:1}}>{new Date(h.date).toLocaleDateString("es-ES")}</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{textAlign:"right"}}>
+              {h.carga_sesion>0&&<div style={{color:C.flamingo,fontFamily:"'Bebas Neue',cursive",fontSize:16}}>{h.carga_sesion}</div>}
+              {h.rpe&&<div style={{color:C.muted,fontSize:9}}>RPE {h.rpe} · {h.duracion_min}min</div>}
+            </div>
+            <span style={{color:"#444",fontSize:12}}>›</span>
+          </div>
+        </button>
       ))}
+      {selectedEntry && <SessionModal entry={selectedEntry} onClose={()=>setSelectedEntry(null)}/>}
     </div>
   );
 }
@@ -1000,6 +1194,7 @@ export default function App() {
   const [calendarWods,setCalendarWods]=useState([]);
   const [benchmarks,setBenchmarks]=useState([]),[benchmarkResults,setBenchmarkResults]=useState({});
   const [loadingH,setLoadingH]=useState(false),[loadingF,setLoadingF]=useState(false),[loadingB,setLoadingB]=useState(false);
+  const { allExercises, saveCustomExercise } = useExerciseDB(session);
   const ref=useRef(null);
 
   async function loadAll(token) {
@@ -1083,8 +1278,10 @@ export default function App() {
               <div style={{color:"#444",fontSize:11}}>🦩 Open · Semifinals · CrossFit Games · Rogue</div>
             </div>
             <GeneratorWizard
+              allExercises={allExercises}
               onGenerate={cfg=>{setLastCfg(cfg);setWod(generateWOD(cfg));setTab("wod");ref.current?.scrollTo({top:0,behavior:"smooth"});}}
               onCustom={w=>{setWod(w);setTab("wod");ref.current?.scrollTo({top:0,behavior:"smooth"});}}
+              onSaveCustom={saveCustomExercise}
             />
           </div>
         )}
